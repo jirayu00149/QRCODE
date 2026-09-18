@@ -1,0 +1,22 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function tsuMember() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email.matches('^[^@]+@tsu[.]ac[.]th$')
+        && request.auth.token.email_verified == true;
+    }
+    match /items/{userId}/{fileName} {
+      allow read: if true;
+      allow create: if tsuMember()
+        && request.auth.uid == userId
+        && fileName.matches('^[a-zA-Z0-9-]+[.]jpg$')
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType == 'image/jpeg';
+      allow update: if false;
+      // The client removes an orphaned upload if the Firestore write fails.
+      allow delete: if tsuMember() && request.auth.uid == userId;
+    }
+  }
+}

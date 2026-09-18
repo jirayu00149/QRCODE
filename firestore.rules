@@ -1,0 +1,61 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email is string
+        && request.auth.token.email.matches('^[^@]+@tsu[.]ac[.]th$')
+        && request.auth.token.email_verified == true;
+    }
+    function validText(value, max) { return value is string && value.size() > 0 && value.size() <= max; }
+    // Set by npm run configure:cloudinary after adding Cloudinary settings.
+    function cloudinaryCloudName() { return 'swjkf3ir'; }
+    function validImage(itemId) {
+      let data = request.resource.data;
+      let legacyFirebase = data.imageUrl.matches('^https://firebasestorage[.]googleapis[.]com/.*')
+        && data.imagePath == 'items/' + request.auth.uid + '/' + itemId + '.jpg';
+      let cloudinaryImage = cloudinaryCloudName() != 'not-configured'
+        && validText(data.imagePath, 500)
+        && data.imagePath.matches('^[a-zA-Z0-9_-]+(/[a-zA-Z0-9_-]+)*$')
+        && data.imageUrl.matches('^https://res[.]cloudinary[.]com/' + cloudinaryCloudName() + '/image/upload/v[0-9]+/' + data.imagePath + '[.]jpg$');
+      return validText(data.imageUrl, 2000) && (legacyFirebase || cloudinaryImage);
+    }
+    match /items/{itemId} {
+      allow get: if true;
+      allow list: if request.query.limit != null && request.query.limit <= 200;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(['title', 'description', 'category', 'location', 'date', 'type', 'status', 'ownerId', 'ownerName', 'createdAt', 'imageUrl', 'imagePath'])
+        && request.resource.data.keys().hasOnly(['title', 'description', 'category', 'location', 'date', 'type', 'status', 'ownerId', 'ownerName', 'createdAt', 'imageUrl', 'imagePath'])
+        && request.resource.data.ownerId == request.auth.uid
+        && validText(request.resource.data.title, 100)
+        && validText(request.resource.data.description, 1500)
+        && validText(request.resource.data.location, 150)
+        && validText(request.resource.data.ownerName, 60)
+        && request.resource.data.category in ['electronics', 'wallet', 'keys', 'personal', 'other']
+        && request.resource.data.type in ['found', 'lost']
+        && request.resource.data.status == 'open'
+        && request.resource.data.date is string
+        && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.createdAt == request.time
+        && validImage(itemId);
+      allow update: if signedIn()
+        && resource.data.ownerId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['open', 'returned'];
+      allow delete: if false;
+      match /private/contact {
+        allow get: if signedIn();
+        allow list: if false;
+        allow create: if signedIn()
+          && getAfter(/databases/$(database)/documents/items/$(itemId)).data.ownerId == request.auth.uid
+          && request.resource.data.keys().hasAll(['contact', 'contactType'])
+          && request.resource.data.keys().hasOnly(['contact', 'contactType'])
+          && validText(request.resource.data.contact, 200)
+          && request.resource.data.contactType in ['phone', 'line', 'email']
+          && (request.resource.data.contactType != 'phone' || request.resource.data.contact.matches('^[+]66[1-9][0-9]{7,8}$'))
+          && (request.resource.data.contactType != 'email' || request.resource.data.contact.matches('^[^@ ]+@tsu[.]ac[.]th$'));
+        allow update, delete: if false;
+      }
+    }
+  }
+}
