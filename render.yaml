@@ -3,7 +3,7 @@ services:
     name: khuenkan-lost-and-found
     runtime: static
     buildCommand: npm ci && npm run build
-    staticPublishPath: dist
+    staticPublishPath: ./dist
     routes:
       - type: rewrite
         source: /*
